@@ -34,13 +34,27 @@ header h1{font-size:22px;margin:0;color:var(--gold);white-space:nowrap;}
 #roundLabel{font-size:18px;font-weight:bold;color:var(--gold);}
 #recvCount{font-size:14px;color:var(--dim);}
 
-#grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;padding:12px 16px;}
-.gcard{background:var(--card);border:2px solid var(--border);border-radius:14px;padding:10px 12px;min-height:110px;position:relative;cursor:pointer;transition:.15s;user-select:none;}
-.gcard .gnum{font-size:13px;color:var(--dim);font-weight:bold;}
-.gcard .gscore{position:absolute;top:8px;right:10px;font-size:12px;color:var(--gold);}
-.gcard .gans{font-size:24px;font-weight:bold;margin-top:6px;word-break:break-all;line-height:1.25;}
-.gcard.empty .gans{color:#584d8a;font-size:16px;font-weight:normal;}
-.gcard .mark{position:absolute;bottom:6px;right:10px;font-size:30px;font-weight:bold;}
+#grid{display:grid;gap:12px;padding:12px 16px;height:calc(100vh - 150px);grid-auto-rows:1fr;}
+.gcard{background:var(--card);border:2px solid var(--border);border-radius:14px;padding:12px 16px;position:relative;cursor:pointer;transition:.15s;user-select:none;display:flex;flex-direction:column;overflow:hidden;}
+.gcard .gnum{font-size:clamp(18px,1.8vw,26px);color:var(--gold);font-weight:bold;}
+.gcard .gscore{position:absolute;top:12px;right:14px;font-size:16px;color:var(--gold);}
+.gcard .gans{font-size:clamp(24px,2.6vw,40px);font-weight:bold;margin-top:8px;word-break:break-all;line-height:1.25;flex:1;}
+.gcard.empty .gans{color:#584d8a;font-size:18px;font-weight:normal;}
+.gcard .mark{position:absolute;bottom:8px;right:14px;font-size:44px;font-weight:bold;line-height:1;}
+.gcard .zbtn{position:absolute;bottom:8px;left:12px;font-size:22px;opacity:.55;}
+.gcard .zbtn:hover{opacity:1;}
+.gcard.empty .zbtn{display:none;}
+
+/* zoom modal */
+#zoomModal .zbox{background:var(--panel);color:var(--text);border:2px solid var(--border);border-radius:22px;width:92vw;height:86vh;display:flex;flex-direction:column;align-items:center;padding:24px;}
+#zTitle{font-size:46px;color:var(--gold);font-weight:bold;}
+#zAns{flex:1;display:flex;align-items:center;justify-content:center;font-size:clamp(60px,10vw,150px);font-weight:bold;text-align:center;word-break:break-all;line-height:1.2;padding:0 20px;}
+#zAns.correct{color:var(--green);}
+#zAns.wrong{color:var(--red);}
+.zbtns{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;}
+.zbtns .hbtn{font-size:22px;padding:14px 26px;}
+.zbtns .ok{background:var(--green);color:#06371b;border:none;}
+.zbtns .no{background:var(--red);color:#fff;border:none;}
 .gcard.correct{border-color:var(--green);background:#12482b;}
 .gcard.correct .mark{color:var(--green);}
 .gcard.wrong{border-color:var(--red);background:#5a1f1a;}
@@ -118,6 +132,21 @@ header h1{font-size:22px;margin:0;color:var(--gold);white-space:nowrap;}
   </div>
 
   <div id="rankPanel" class="hidden"><h2>🏆 累計排行榜</h2><div id="rankList"></div></div>
+
+  <div id="zoomModal" class="modal hidden" onclick="if(event.target===this)closeZoom()">
+    <div class="zbox">
+      <div id="zTitle">第 1 組</div>
+      <div id="zAns"></div>
+      <div class="zbtns">
+        <button class="hbtn" onclick="zoomNav(-1)">◀ 上一組</button>
+        <button class="hbtn ok" onclick="zoomMark('correct')">✓ 答對</button>
+        <button class="hbtn no" onclick="zoomMark('wrong')">✗ 答錯</button>
+        <button class="hbtn" onclick="zoomMark('')">清除</button>
+        <button class="hbtn" onclick="zoomNav(1)">下一組 ▶</button>
+        <button class="hbtn" onclick="closeZoom()">關閉</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ================= PLAYER VIEW ================= -->
@@ -195,15 +224,35 @@ if (!isPlayer) {
 
   function buildGrid(){
     const g = document.getElementById('grid');
+    const n = state.groups;
+    const cols = n<=4?2 : n<=6?3 : n<=8?4 : n<=10?5 : 6;
+    g.style.gridTemplateColumns = `repeat(${cols},1fr)`;
     g.innerHTML = '';
-    for (let i=1;i<=state.groups;i++){
+    for (let i=1;i<=n;i++){
       const d = document.createElement('div');
       d.className = 'gcard empty'; d.id = 'card'+i;
-      d.innerHTML = `<div class="gnum">第 ${i} 組</div><div class="gscore" id="sc${i}"></div><div class="gans" id="ans${i}">等待作答…</div><div class="mark" id="mk${i}"></div>`;
+      d.innerHTML = `<div class="gnum">第 ${i} 組</div><div class="gscore" id="sc${i}"></div><div class="gans" id="ans${i}">等待作答…</div><div class="zbtn">🔍</div><div class="mark" id="mk${i}"></div>`;
       d.onclick = ()=>cycleMark(i);
+      d.querySelector('.zbtn').onclick = (e)=>{ e.stopPropagation(); openZoom(i); };
       g.appendChild(d);
     }
     refreshAll();
+  }
+
+  /* ---- zoom ---- */
+  let zoomG = 0;
+  window.openZoom = (i)=>{ zoomG = i; renderZoom(); document.getElementById('zoomModal').classList.remove('hidden'); };
+  window.closeZoom = ()=>{ zoomG = 0; document.getElementById('zoomModal').classList.add('hidden'); };
+  window.zoomNav = (d)=>{ zoomG = ((zoomG - 1 + d + state.groups) % state.groups) + 1; renderZoom(); };
+  window.zoomMark = (m)=>{ if (answers[zoomG]){ marks[zoomG] = m; refreshCard(zoomG); renderZoom(); } };
+  function renderZoom(){
+    if (!zoomG) return;
+    document.getElementById('zTitle').textContent = `第 ${zoomG} 組`;
+    const z = document.getElementById('zAns');
+    const a = answers[zoomG];
+    z.textContent = a ? a.a : '（尚未作答）';
+    z.className = marks[zoomG] || '';
+    if (!a) z.className = '';
   }
   function refreshCard(i){
     const card = document.getElementById('card'+i); if(!card) return;
@@ -231,7 +280,7 @@ if (!isPlayer) {
   window.setGroups = ()=>{
     state.groups = Math.min(18, Math.max(2, +document.getElementById('grpInput').value || 18));
     document.getElementById('grpInput').value = state.groups;
-    buildGrid(); pushState();
+    closeZoom(); buildGrid(); pushState();
   };
   window.toggleLock = ()=>{
     state.locked = !state.locked;
@@ -293,6 +342,7 @@ if (!isPlayer) {
         answers[g] = {a: m.a.slice(0,30), ts: Date.now()};
         marks[g] = '';
         refreshAll();
+        if (zoomG === g) renderZoom();
         const card = document.getElementById('card'+g);
         if (card){ card.classList.remove('newAns'); void card.offsetWidth; card.classList.add('newAns'); }
       } catch(e){}
