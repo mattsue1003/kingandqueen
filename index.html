@@ -1,0 +1,357 @@
+
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>國王與皇后 · 即時答題</title>
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+:root{
+  --bg:#1a1333; --panel:#261c4a; --card:#2f2460; --border:#4a3a8c;
+  --gold:#f5c542; --green:#2ecc71; --red:#e74c3c; --text:#f3efff; --dim:#a99fd6;
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+body{margin:0;font-family:"PingFang TC","Microsoft JhengHei",sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+button{font-family:inherit;cursor:pointer;border:none;border-radius:10px;}
+input,select{font-family:inherit;}
+.hidden{display:none!important;}
+
+/* ===== HOST ===== */
+header{display:flex;align-items:center;gap:14px;padding:10px 16px;background:var(--panel);flex-wrap:wrap;}
+header h1{font-size:22px;margin:0;color:var(--gold);white-space:nowrap;}
+.crown{font-size:24px;}
+#connBadge{font-size:12px;padding:3px 10px;border-radius:20px;background:#555;}
+#connBadge.on{background:var(--green);color:#08351c;font-weight:bold;}
+.spacer{flex:1;}
+.hbtn{padding:8px 14px;font-size:15px;font-weight:bold;background:var(--card);color:var(--text);border:1px solid var(--border);}
+.hbtn.gold{background:var(--gold);color:#3a2c00;border:none;}
+.hbtn.warn{background:var(--red);color:#fff;border:none;}
+#toolbar{display:flex;align-items:center;gap:10px;padding:10px 16px;flex-wrap:wrap;background:rgba(0,0,0,.15);}
+#toolbar label{font-size:14px;color:var(--dim);}
+#toolbar input{width:64px;padding:6px;font-size:16px;text-align:center;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text);}
+#roundLabel{font-size:18px;font-weight:bold;color:var(--gold);}
+#recvCount{font-size:14px;color:var(--dim);}
+
+#grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;padding:12px 16px;}
+.gcard{background:var(--card);border:2px solid var(--border);border-radius:14px;padding:10px 12px;min-height:110px;position:relative;cursor:pointer;transition:.15s;user-select:none;}
+.gcard .gnum{font-size:13px;color:var(--dim);font-weight:bold;}
+.gcard .gscore{position:absolute;top:8px;right:10px;font-size:12px;color:var(--gold);}
+.gcard .gans{font-size:24px;font-weight:bold;margin-top:6px;word-break:break-all;line-height:1.25;}
+.gcard.empty .gans{color:#584d8a;font-size:16px;font-weight:normal;}
+.gcard .mark{position:absolute;bottom:6px;right:10px;font-size:30px;font-weight:bold;}
+.gcard.correct{border-color:var(--green);background:#12482b;}
+.gcard.correct .mark{color:var(--green);}
+.gcard.wrong{border-color:var(--red);background:#5a1f1a;}
+.gcard.wrong .mark{color:var(--red);}
+.gcard.newAns{animation:pop .4s;}
+@keyframes pop{0%{transform:scale(.92);box-shadow:0 0 0 4px var(--gold);}100%{transform:scale(1);}}
+
+/* modal */
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;z-index:50;}
+.mbox{background:#fff;color:#222;border-radius:18px;padding:26px 30px;text-align:center;max-width:92vw;max-height:92vh;overflow:auto;}
+.mbox h2{margin:0 0 8px;}
+#qrcode{display:flex;justify-content:center;margin:14px 0;}
+#joinUrl{font-size:13px;word-break:break-all;color:#555;max-width:340px;}
+.mbox .hbtn{margin-top:14px;}
+#fileWarn{color:#b00;font-size:13px;max-width:340px;margin-top:8px;}
+
+/* rank panel */
+#rankPanel{position:fixed;top:0;right:0;bottom:0;width:300px;background:var(--panel);border-left:2px solid var(--border);z-index:40;padding:14px;overflow:auto;box-shadow:-6px 0 20px rgba(0,0,0,.4);}
+#rankPanel h2{margin:4px 0 12px;color:var(--gold);font-size:18px;}
+.rrow{display:flex;align-items:center;gap:8px;padding:7px 6px;border-bottom:1px solid #3a2f6b;font-size:16px;}
+.rrow .rname{flex:1;}
+.rrow .rpts{font-weight:bold;color:var(--gold);min-width:44px;text-align:right;}
+.rrow button{width:30px;height:30px;font-size:16px;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:8px;}
+.rrow:nth-child(2) .rname{color:var(--gold);}
+
+/* ===== PLAYER ===== */
+#playerView{max-width:480px;margin:0 auto;padding:18px 16px 40px;}
+#playerView h1{text-align:center;color:var(--gold);font-size:26px;margin:8px 0 2px;}
+#pRound{text-align:center;color:var(--dim);margin-bottom:14px;}
+#groupPick{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin:10px 0 16px;}
+#groupPick button{aspect-ratio:1;font-size:18px;font-weight:bold;background:var(--card);color:var(--text);border:2px solid var(--border);}
+#groupPick button.sel{background:var(--gold);color:#3a2c00;border-color:var(--gold);}
+#ansInput{width:100%;padding:14px;font-size:22px;border-radius:12px;border:2px solid var(--border);background:var(--card);color:var(--text);}
+#sendBtn{width:100%;margin-top:12px;padding:16px;font-size:20px;font-weight:bold;background:var(--gold);color:#3a2c00;}
+#sendBtn:disabled{background:#666;color:#aaa;}
+#pMsg{text-align:center;margin-top:14px;font-size:17px;min-height:26px;}
+#pMsg.ok{color:var(--green);}
+#pMsg.err{color:var(--red);}
+#lockNote{text-align:center;color:var(--red);font-weight:bold;margin-top:8px;}
+.plabel{color:var(--dim);font-size:15px;margin:6px 0;}
+</style>
+</head>
+<body>
+
+<!-- ================= HOST VIEW ================= -->
+<div id="hostView" class="hidden">
+  <header>
+    <span class="crown">👑</span><h1>國王與皇后</h1>
+    <span id="connBadge">連線中…</span>
+    <span class="spacer"></span>
+    <button class="hbtn gold" onclick="showQR()">📱 顯示加入 QR</button>
+    <button class="hbtn" id="lockBtn" onclick="toggleLock()">🔓 開放作答中</button>
+    <button class="hbtn" onclick="toggleRank()">🏆 排行榜</button>
+  </header>
+  <div id="toolbar">
+    <span id="roundLabel">第 1 回合</span>
+    <label>本回合分數 <input type="number" id="ptsInput" value="10" min="0" step="5" onchange="pushState()"></label>
+    <label>組數 <input type="number" id="grpInput" value="18" min="2" max="18" onchange="setGroups()"></label>
+    <span id="recvCount">已收到 0 / 18</span>
+    <span class="spacer"></span>
+    <button class="hbtn gold" onclick="nextRound()">✅ 結算並進入下一回合</button>
+    <button class="hbtn warn" onclick="resetAll()">重設全部</button>
+  </div>
+  <div id="grid"></div>
+
+  <div id="qrModal" class="modal hidden" onclick="if(event.target===this)this.classList.add('hidden')">
+    <div class="mbox">
+      <h2>掃描加入作答</h2>
+      <div style="font-size:15px;color:#666">房間代碼：<b id="roomShow" style="font-size:22px;color:#000"></b></div>
+      <div id="qrcode"></div>
+      <div id="joinUrl"></div>
+      <div id="fileWarn" class="hidden">⚠️ 此網頁目前是從本機檔案開啟，手機掃描後無法連上。請先把這個檔案放到網路上（例如 Netlify Drop 免費空間），再從網址開啟使用。</div>
+      <button class="hbtn gold" onclick="document.getElementById('qrModal').classList.add('hidden')">關閉</button>
+    </div>
+  </div>
+
+  <div id="rankPanel" class="hidden"><h2>🏆 累計排行榜</h2><div id="rankList"></div></div>
+</div>
+
+<!-- ================= PLAYER VIEW ================= -->
+<div id="playerView" class="hidden">
+  <h1>👑 國王與皇后</h1>
+  <div id="pRound">第 1 回合</div>
+  <div class="plabel">1️⃣ 選擇你的組別</div>
+  <div id="groupPick"></div>
+  <div class="plabel">2️⃣ 輸入你們這組的答案</div>
+  <input id="ansInput" placeholder="輸入答案…" maxlength="30">
+  <button id="sendBtn" onclick="sendAnswer()">送出答案</button>
+  <div id="lockNote" class="hidden">🔒 本回合已鎖定，暫停作答</div>
+  <div id="pMsg"></div>
+</div>
+
+<script>
+/* ---------- common ---------- */
+const qs = new URLSearchParams(location.search);
+const isPlayer = qs.get('mode') === 'play';
+const BROKERS = ['wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt'];
+let brokerIdx = 0, client = null;
+let room = qs.get('room') || localStorage.getItem('kq_room') || '';
+if (!isPlayer && !room) {
+  room = 'KQ' + Math.random().toString(36).slice(2,7).toUpperCase();
+}
+if (!isPlayer) localStorage.setItem('kq_room', room);
+const T_ANS = () => `icope-kq/${room}/ans`;
+const T_STATE = () => `icope-kq/${room}/state`;
+
+function connect(onReady){
+  const url = BROKERS[brokerIdx % BROKERS.length];
+  client = mqtt.connect(url, {clientId:'kq_'+Math.random().toString(16).slice(2,10), keepalive:30, reconnectPeriod:3000, connectTimeout:8000});
+  let ok = false;
+  client.on('connect', ()=>{ ok = true; setConn(true); onReady(); });
+  client.on('close', ()=> setConn(false));
+  client.on('error', ()=>{});
+  setTimeout(()=>{ if(!ok){ try{client.end(true);}catch(e){} brokerIdx++; connect(onReady); } }, 9000);
+}
+function setConn(on){
+  const b = document.getElementById('connBadge');
+  if (b){ b.textContent = on ? '已連線' : '連線中…'; b.classList.toggle('on', on); }
+  const s = document.getElementById('sendBtn');
+  if (s && isPlayer) s.disabled = !on || state.locked;
+}
+
+/* ---------- shared state ---------- */
+let state = {round:1, points:10, locked:false, groups:18};
+
+/* ================= HOST ================= */
+if (!isPlayer) {
+  document.getElementById('hostView').classList.remove('hidden');
+  // answers[g] = {a:'text', ts}; marks[g] = ''|'correct'|'wrong'; totals[g] = int
+  let answers = {}, marks = {}, totals = {};
+  // restore
+  try {
+    const saved = JSON.parse(localStorage.getItem('kq_save_'+room) || '{}');
+    if (saved.totals) totals = saved.totals;
+    if (saved.round)  state.round = saved.round;
+    if (saved.groups) state.groups = saved.groups;
+    if (saved.points != null) state.points = saved.points;
+  } catch(e){}
+  document.getElementById('grpInput').value = state.groups;
+  document.getElementById('ptsInput').value = state.points;
+
+  function save(){
+    localStorage.setItem('kq_save_'+room, JSON.stringify({totals, round:state.round, groups:state.groups, points:state.points}));
+  }
+  function pushState(){
+    state.points = +document.getElementById('ptsInput').value || 0;
+    if (client && client.connected) client.publish(T_STATE(), JSON.stringify(state), {retain:true, qos:1});
+    document.getElementById('roundLabel').textContent = `第 ${state.round} 回合`;
+    save();
+  }
+  window.pushState = pushState;
+
+  function buildGrid(){
+    const g = document.getElementById('grid');
+    g.innerHTML = '';
+    for (let i=1;i<=state.groups;i++){
+      const d = document.createElement('div');
+      d.className = 'gcard empty'; d.id = 'card'+i;
+      d.innerHTML = `<div class="gnum">第 ${i} 組</div><div class="gscore" id="sc${i}"></div><div class="gans" id="ans${i}">等待作答…</div><div class="mark" id="mk${i}"></div>`;
+      d.onclick = ()=>cycleMark(i);
+      g.appendChild(d);
+    }
+    refreshAll();
+  }
+  function refreshCard(i){
+    const card = document.getElementById('card'+i); if(!card) return;
+    const a = answers[i];
+    card.classList.toggle('empty', !a);
+    document.getElementById('ans'+i).textContent = a ? a.a : '等待作答…';
+    const m = marks[i] || '';
+    card.classList.toggle('correct', m==='correct');
+    card.classList.toggle('wrong', m==='wrong');
+    document.getElementById('mk'+i).textContent = m==='correct' ? '✓' : (m==='wrong' ? '✗' : '');
+    document.getElementById('sc'+i).textContent = (totals[i]||0) + ' 分';
+  }
+  function refreshAll(){
+    for (let i=1;i<=state.groups;i++) refreshCard(i);
+    const n = Object.keys(answers).filter(k=>+k<=state.groups).length;
+    document.getElementById('recvCount').textContent = `已收到 ${n} / ${state.groups}`;
+    renderRank();
+  }
+  function cycleMark(i){
+    if (!answers[i]) return;
+    const m = marks[i] || '';
+    marks[i] = m==='' ? 'correct' : (m==='correct' ? 'wrong' : '');
+    refreshCard(i);
+  }
+  window.setGroups = ()=>{
+    state.groups = Math.min(18, Math.max(2, +document.getElementById('grpInput').value || 18));
+    document.getElementById('grpInput').value = state.groups;
+    buildGrid(); pushState();
+  };
+  window.toggleLock = ()=>{
+    state.locked = !state.locked;
+    document.getElementById('lockBtn').textContent = state.locked ? '🔒 已鎖定作答' : '🔓 開放作答中';
+    pushState();
+  };
+  window.nextRound = ()=>{
+    const pts = +document.getElementById('ptsInput').value || 0;
+    let winners = 0;
+    for (let i=1;i<=state.groups;i++) if (marks[i]==='correct'){ totals[i]=(totals[i]||0)+pts; winners++; }
+    if (!confirm(`本回合 ${winners} 組答對，各 +${pts} 分。\n確定結算並清空答案、進入第 ${state.round+1} 回合？`)) {
+      for (let i=1;i<=state.groups;i++) if (marks[i]==='correct') totals[i]-=pts;
+      return;
+    }
+    answers = {}; marks = {};
+    state.round++; state.locked = false;
+    document.getElementById('lockBtn').textContent = '🔓 開放作答中';
+    pushState(); refreshAll();
+  };
+  window.resetAll = ()=>{
+    if (!confirm('確定重設？所有分數與回合都會歸零。')) return;
+    answers={}; marks={}; totals={}; state.round=1; state.locked=false;
+    pushState(); refreshAll();
+  };
+  window.showQR = ()=>{
+    const modal = document.getElementById('qrModal');
+    modal.classList.remove('hidden');
+    document.getElementById('roomShow').textContent = room;
+    const url = location.origin + location.pathname + '?mode=play&room=' + room;
+    document.getElementById('joinUrl').textContent = url;
+    document.getElementById('fileWarn').classList.toggle('hidden', location.protocol !== 'file:');
+    const box = document.getElementById('qrcode');
+    box.innerHTML = '';
+    new QRCode(box, {text:url, width:260, height:260});
+  };
+  window.toggleRank = ()=> document.getElementById('rankPanel').classList.toggle('hidden');
+  function renderRank(){
+    const rows = [];
+    for (let i=1;i<=state.groups;i++) rows.push([i, totals[i]||0]);
+    rows.sort((a,b)=>b[1]-a[1]);
+    document.getElementById('rankList').innerHTML = rows.map(([g,p],idx)=>
+      `<div class="rrow"><span>${idx===0&&p>0?'🥇':idx===1&&p>0?'🥈':idx===2&&p>0?'🥉':(idx+1)+'.'}</span>
+       <span class="rname">第 ${g} 組</span>
+       <button onclick="adj(${g},-5)">−</button><span class="rpts">${p}</span><button onclick="adj(${g},5)">＋</button></div>`).join('');
+  }
+  window.adj = (g,d)=>{ totals[g]=(totals[g]||0)+d; save(); refreshAll(); };
+
+  buildGrid();
+  connect(()=>{
+    client.subscribe(T_ANS(), {qos:1});
+    pushState();
+    client.on('message', (topic, msg)=>{
+      if (topic !== T_ANS()) return;
+      try {
+        const m = JSON.parse(msg.toString());
+        const g = +m.g;
+        if (!g || g<1 || g>18 || typeof m.a !== 'string') return;
+        if (state.locked) return;
+        answers[g] = {a: m.a.slice(0,30), ts: Date.now()};
+        marks[g] = '';
+        refreshAll();
+        const card = document.getElementById('card'+g);
+        if (card){ card.classList.remove('newAns'); void card.offsetWidth; card.classList.add('newAns'); }
+      } catch(e){}
+    });
+  });
+}
+
+/* ================= PLAYER ================= */
+if (isPlayer) {
+  document.getElementById('playerView').classList.remove('hidden');
+  let myGroup = +localStorage.getItem('kq_myg_'+room) || 0;
+  let lastRoundSent = 0;
+
+  function buildPick(){
+    const box = document.getElementById('groupPick');
+    box.innerHTML = '';
+    for (let i=1;i<=state.groups;i++){
+      const b = document.createElement('button');
+      b.textContent = i;
+      b.classList.toggle('sel', i===myGroup);
+      b.onclick = ()=>{ myGroup=i; localStorage.setItem('kq_myg_'+room, i); buildPick(); };
+      box.appendChild(b);
+    }
+  }
+  function applyState(){
+    document.getElementById('pRound').textContent = `第 ${state.round} 回合 ｜ 本題 ${state.points} 分`;
+    document.getElementById('lockNote').classList.toggle('hidden', !state.locked);
+    document.getElementById('sendBtn').disabled = state.locked || !(client && client.connected);
+    buildPick();
+  }
+  window.sendAnswer = ()=>{
+    const msgEl = document.getElementById('pMsg');
+    const a = document.getElementById('ansInput').value.trim();
+    if (!myGroup){ msgEl.textContent='請先選擇組別！'; msgEl.className='err'; return; }
+    if (!a){ msgEl.textContent='請輸入答案！'; msgEl.className='err'; return; }
+    client.publish(T_ANS(), JSON.stringify({g:myGroup, a}), {qos:1}, (err)=>{
+      if (err){ msgEl.textContent='送出失敗，請再試一次'; msgEl.className='err'; }
+      else {
+        msgEl.textContent=`✅ 第 ${myGroup} 組答案已送出（第 ${state.round} 回合）`; msgEl.className='ok';
+        lastRoundSent = state.round;
+      }
+    });
+  };
+  buildPick(); applyState();
+  connect(()=>{
+    client.subscribe(T_STATE(), {qos:1});
+    client.on('message', (topic,msg)=>{
+      if (topic !== T_STATE()) return;
+      try {
+        const s = JSON.parse(msg.toString());
+        const newRound = s.round !== state.round;
+        state = s;
+        if (newRound && lastRoundSent){ document.getElementById('ansInput').value=''; document.getElementById('pMsg').textContent=''; }
+        applyState();
+      } catch(e){}
+    });
+    applyState();
+  });
+}
+</script>
+</body>
+</html>
